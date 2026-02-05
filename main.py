@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Header, HTTPException, Body
+from fastapi import FastAPI, Header, HTTPException, Request
 import json
 import os
 
@@ -19,8 +19,8 @@ app = FastAPI(title="Agentic Honey-Pot for Scam Detection")
 # MAIN ENDPOINT (422 SAFE)
 # =====================
 @app.post("/honeypot")
-def honeypot(
-    body: bytes = Body(default=b""),
+async def honeypot(
+    request: Request,
     x_api_key: str = Header(None)
 ):
     # ---- Auth check ----
@@ -30,9 +30,14 @@ def honeypot(
     # ---- GUVI / Tester payload handling ----
     # Accept empty, malformed, or alternate-key payloads without 422.
     event = {}
-    if body:
+    try:
+        raw_body = await request.body()
+    except Exception:
+        raw_body = b""
+
+    if raw_body:
         try:
-            event = json.loads(body.decode("utf-8"))
+            event = json.loads(raw_body.decode("utf-8"))
         except Exception:
             event = {}
 
@@ -86,7 +91,7 @@ def honeypot(
     if detection.get("is_scam"):
         agent_active = True
         reply = agent_reply(history)
-        add_message(event.conversation_id, "agent", reply)
+        add_message(conversation_id, "agent", reply)
         extracted = extract_intelligence(reply)
 
     # 4️⃣ Structured response (judge-required)
