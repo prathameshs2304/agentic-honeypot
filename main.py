@@ -1,6 +1,5 @@
 from fastapi import FastAPI, Header, HTTPException, Body
-from pydantic import BaseModel
-from typing import Optional
+import json
 import os
 
 from memory import add_message, get_history
@@ -17,27 +16,40 @@ app = FastAPI(title="Agentic Honey-Pot for Scam Detection")
 
 
 # =====================
-# INPUT SCHEMA (FIXED)
-# =====================
-class ScamEvent(BaseModel):
-    conversation_id: Optional[str] = "tester_conv"
-    message: Optional[str] = ""
-
-
-# =====================
 # MAIN ENDPOINT (422 SAFE)
 # =====================
 @app.post("/honeypot")
 def honeypot(
-    event: ScamEvent = Body(default=ScamEvent()),
+    body: bytes = Body(default=b""),
     x_api_key: str = Header(None)
 ):
     # ---- Auth check ----
     if x_api_key != API_KEY:
         raise HTTPException(status_code=401, detail="Invalid API Key")
 
-    # ---- GUVI / Tester empty-payload handling ----
-    if not event.message:
+    # ---- GUVI / Tester payload handling ----
+    # Accept empty, malformed, or alternate-key payloads without 422.
+    event = {}
+    if body:
+        try:
+            event = json.loads(body.decode("utf-8"))
+        except Exception:
+            event = {}
+
+    conversation_id = (
+        event.get("conversation_id")
+        or event.get("conversationId")
+        or event.get("conv_id")
+        or "tester_conv"
+    )
+    message = (
+        event.get("message")
+        or event.get("msg")
+        or event.get("text")
+        or ""
+    )
+
+    if not message:
         return {
             "scam_detected": False,
             "confidence": 0.0,
@@ -56,11 +68,11 @@ def honeypot(
     # =====================
 
     # 1️⃣ Store incoming message
-    add_message(event.conversation_id, "scammer", event.message)
-    history = get_history(event.conversation_id)
+    add_message(conversation_id, "scammer", message)
+    history = get_history(conversation_id)
 
     # 2️⃣ Detect scam
-    detection = detect_scam(event.message, history)
+    detection = detect_scam(message, history)
 
     agent_active = False
     reply = None
